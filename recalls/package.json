@@ -1,0 +1,174 @@
+{
+  "name": "recalls",
+  "displayName": "Recalls",
+  "description": "Recursive method search",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "recalls.refreshSymbols",
+        "title": "Refresh Symbols",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "recalls.goToSymbol",
+        "title": "Go to Symbol"
+      },
+      {
+        "command": "recalls.analyzeMethod",
+        "title": "Analyze Method Calls",
+        "icon": "$(search)"
+      },
+      {
+        "command": "recalls.goToMethodCall",
+        "title": "Go to Method Call"
+      },
+      {
+        "command": "recalls.setAnalysisDepth",
+        "title": "Set Analysis Depth",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "recalls.clearAnalysis",
+        "title": "Clear Analysis",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "recalls.refreshMethodCalls",
+        "title": "Refresh Method Calls",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "recalls.showWorkspaceInfo",
+        "title": "Show Workspace Analysis Info",
+        "icon": "$(info)"
+      },
+      {
+        "command": "recalls.analyzeMethodAtCursor",
+        "title": "Analyze Method at Cursor",
+        "icon": "$(search)"
+      },
+      {
+        "command": "recalls.enableDebug",
+        "title": "Enable Debug Output",
+        "icon": "$(debug)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "recalls-search",
+          "title": "Recursive Search",
+          "icon": "resources/bars-solid-full.svg"
+        }
+      ]
+    },
+    "views": {
+      "recalls-search": [
+        {
+          "id": "symbols-current-file",
+          "name": "Symbols",
+          "when": "true"
+        },
+        {
+          "id": "inspect-methods",
+          "name": "Inspect Methods"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "recalls.refreshSymbols",
+          "when": "view == symbols-current-file",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.refreshMethodCalls",
+          "when": "view == inspect-methods",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.setAnalysisDepth",
+          "when": "view == inspect-methods",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.clearAnalysis",
+          "when": "view == inspect-methods",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.showWorkspaceInfo",
+          "when": "view == inspect-methods",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.enableDebug",
+          "when": "view == inspect-methods",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "recalls.goToSymbol",
+          "when": "view == symbols-current-file && viewItem != placeholder",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.analyzeMethod",
+          "when": "view == symbols-current-file && viewItem =~ /symbol-(method|function|constructor)/",
+          "group": "analysis"
+        },
+        {
+          "command": "recalls.goToMethodCall",
+          "when": "view == inspect-methods && viewItem == method-call",
+          "group": "navigation"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "recalls.analyzeMethodAtCursor",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.104.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "eslint": "^9.34.0",
+    "esbuild": "^0.25.9",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.2",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
