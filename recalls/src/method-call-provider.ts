@@ -82,16 +82,13 @@ export class MethodCallTreeDataProvider implements vscode.TreeDataProvider<Metho
                 cancellable: false
             }, async (progress) => {
                 progress.report({ 
-                    message: `Preparing workspace analysis (${stats.totalFiles} files)...`,
-                    increment: 10 
+                    message: `Using cached symbols (${stats.supportedFiles}/${stats.totalFiles} files indexed)...`,
+                    increment: 20 
                 });
-                
-                // Ensure workspace is indexed by opening a few files
-                await this.ensureWorkspaceIndexed();
                 
                 progress.report({ 
                     message: `Searching for references across workspace...`,
-                    increment: 30 
+                    increment: 50 
                 });
                 
                 this.currentCallTree = await this.analysisService.analyzeMethodCalls(methodSymbol, uri);
@@ -108,36 +105,12 @@ export class MethodCallTreeDataProvider implements vscode.TreeDataProvider<Metho
                     const totalCalls = this.countTotalCalls(this.currentCallTree);
                     const uniqueFiles = this.countUniqueFiles(this.currentCallTree);
                     vscode.window.showInformationMessage(
-                        `Found ${totalCalls} method calls across ${uniqueFiles} files (searched ${stats.totalFiles} workspace files)`
+                        `Found ${totalCalls} method calls across ${uniqueFiles} files (analyzed ${stats.supportedFiles} cached files)`
                     );
                 }
             });
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to analyze method calls: ${error}`);
-        }
-    }
-
-    private async ensureWorkspaceIndexed(): Promise<void> {
-        try {
-            // Get a few representative files to ensure indexing
-            const files = await vscode.workspace.findFiles(
-                '**/*.{ts,js,tsx,jsx}',
-                '**/node_modules/**',
-                10 // Limit to first 10 files
-            );
-
-            // Open and close files to trigger indexing
-            for (const file of files) {
-                try {
-                    const document = await vscode.workspace.openTextDocument(file);
-                    // Just opening the document helps ensure it's indexed
-                    await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
-                } catch (error) {
-                    // Ignore errors for individual files
-                }
-            }
-        } catch (error) {
-            console.warn('Error ensuring workspace indexing:', error);
         }
     }
 

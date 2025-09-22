@@ -20,7 +20,8 @@
       },
       {
         "command": "recalls.goToSymbol",
-        "title": "Go to Symbol"
+        "title": "Go to Symbol",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "recalls.analyzeMethod",
@@ -29,7 +30,8 @@
       },
       {
         "command": "recalls.goToMethodCall",
-        "title": "Go to Method Call"
+        "title": "Go to Method Call",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "recalls.setAnalysisDepth",
@@ -60,6 +62,36 @@
         "command": "recalls.enableDebug",
         "title": "Enable Debug Output",
         "icon": "$(debug)"
+      },
+      {
+        "command": "recalls.analyzeInternalCalls",
+        "title": "Analyze Internal Method Calls",
+        "icon": "$(call-hierarchy-incoming)"
+      },
+      {
+        "command": "recalls.goToInternalCall",
+        "title": "Go to Internal Call",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "recalls.clearInternalAnalysis",
+        "title": "Clear Internal Analysis",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "recalls.refreshInternalCalls",
+        "title": "Refresh Internal Calls",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "recalls.analyzeInternalCallsAtCursor",
+        "title": "Analyze Internal Calls at Cursor",
+        "icon": "$(call-hierarchy-incoming)"
+      },
+      {
+        "command": "recalls.showInternalCallStats",
+        "title": "Show Internal Call Statistics",
+        "icon": "$(graph)"
       }
     ],
     "viewsContainers": {
@@ -81,6 +113,10 @@
         {
           "id": "inspect-methods",
           "name": "Inspect Methods"
+        },
+        {
+          "id": "internal-method-calls",
+          "name": "Internal Method Calls"
         }
       ]
     },
@@ -115,6 +151,26 @@
           "command": "recalls.enableDebug",
           "when": "view == inspect-methods",
           "group": "navigation"
+        },
+        {
+          "command": "recalls.refreshInternalCalls",
+          "when": "view == internal-method-calls",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.clearInternalAnalysis",
+          "when": "view == internal-method-calls",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.showInternalCallStats",
+          "when": "view == internal-method-calls",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.setAnalysisDepth",
+          "when": "view == internal-method-calls",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -129,8 +185,18 @@
           "group": "analysis"
         },
         {
+          "command": "recalls.analyzeInternalCalls",
+          "when": "view == symbols-current-file && viewItem =~ /symbol-(method|function|constructor)/",
+          "group": "analysis"
+        },
+        {
           "command": "recalls.goToMethodCall",
           "when": "view == inspect-methods && viewItem == method-call",
+          "group": "navigation"
+        },
+        {
+          "command": "recalls.goToInternalCall",
+          "when": "view == internal-method-calls && viewItem == internal-method-call",
           "group": "navigation"
         }
       ]
@@ -140,6 +206,12 @@
         "command": "recalls.analyzeMethodAtCursor",
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "recalls.analyzeInternalCallsAtCursor",
+        "key": "ctrl+alt+i",
+        "mac": "cmd+alt+i",
         "when": "editorTextFocus"
       }
     ]

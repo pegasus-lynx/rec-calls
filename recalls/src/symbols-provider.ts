@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { WorkspaceSymbolCache } from './workspace-symbol-cache';
 
 // Symbol Tree Item class to represent individual symbols
 export class SymbolTreeItem extends vscode.TreeItem {
@@ -71,15 +72,19 @@ export class SymbolsTreeDataProvider implements vscode.TreeDataProvider<SymbolTr
 
     private symbols: vscode.DocumentSymbol[] = [];
     private currentDocument: vscode.TextDocument | undefined;
+    private searchFilter: string = '';
+    private symbolCache: WorkspaceSymbolCache;
 
     constructor() {
+        this.symbolCache = WorkspaceSymbolCache.getInstance();
+        
         // Listen for active editor changes
         vscode.window.onDidChangeActiveTextEditor(() => {
             this.refresh();
         });
 
         // Listen for document changes
-        vscode.workspace.onDidChangeTextDocument(() => {
+        vscode.workspace.onDidSaveTextDocument(() => {
             this.refresh();
         });
 
@@ -103,13 +108,8 @@ export class SymbolsTreeDataProvider implements vscode.TreeDataProvider<SymbolTr
         this.currentDocument = activeEditor.document;
         
         try {
-            // Get document symbols using VS Code's built-in symbol provider
-            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
-                'vscode.executeDocumentSymbolProvider',
-                this.currentDocument.uri
-            );
-            
-            this.symbols = symbols || [];
+            // Use cached symbols for instant loading
+            this.symbols = await this.symbolCache.getSymbolsForFile(this.currentDocument.uri);
         } catch (error) {
             console.error('Error loading symbols:', error);
             this.symbols = [];

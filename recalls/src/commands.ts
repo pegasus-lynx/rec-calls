@@ -1,13 +1,21 @@
 import * as vscode from 'vscode';
-import { SymbolTreeItem } from './symbols-provider';
+import { SymbolTreeItem, SymbolsTreeDataProvider } from './symbols-provider';
 import { MethodCallTreeItem, MethodCallTreeDataProvider } from './method-call-provider';
+import { InternalMethodCallTreeItem, InternalMethodCallTreeDataProvider } from './internal-method-call-provider';
+import { InternalMethodCallAnalysisService } from './internal-method-analysis-service';
+import { WorkspaceSymbolCache } from './workspace-symbol-cache';
 
 // Command implementations
 export class RecallsCommands {
+    private internalAnalysisService: InternalMethodCallAnalysisService;
+
     constructor(
         private symbolsProvider: any, // Will be properly typed in main extension
-        private methodCallProvider: MethodCallTreeDataProvider
-    ) {}
+        private methodCallProvider: MethodCallTreeDataProvider,
+        private internalMethodCallProvider: InternalMethodCallTreeDataProvider
+    ) {
+        this.internalAnalysisService = new InternalMethodCallAnalysisService();
+    }
 
     // Command to refresh symbols manually
     createRefreshSymbolsCommand(): vscode.Disposable {
@@ -168,6 +176,85 @@ export class RecallsCommands {
         });
     }
 
+    // Command to search symbols
+    createSearchSymbolsCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.searchSymbols', async () => {
+            const currentFilter = this.symbolsProvider.getSearchFilter();
+            const input = await vscode.window.showInputBox({
+                prompt: 'Search symbols by name (case-insensitive)',
+                value: currentFilter,
+                placeHolder: 'Enter symbol name to search...'
+            });
+
+            if (input !== undefined) { // User didn't cancel
+                if (input.trim() === '') {
+                    this.symbolsProvider.clearSearchFilter();
+                    vscode.window.showInformationMessage('Symbol search filter cleared');
+                } else {
+                    this.symbolsProvider.setSearchFilter(input.trim());
+                    vscode.window.showInformationMessage(`Searching for symbols containing: "${input.trim()}"`);
+                }
+            }
+        });
+    }
+
+    // Command to clear symbol search
+    createClearSymbolSearchCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.clearSymbolSearch', () => {
+            this.symbolsProvider.clearSearchFilter();
+            vscode.window.showInformationMessage('Symbol search filter cleared');
+        });
+    }
+
+    // Command to reindex workspace symbols
+    createReindexWorkspaceCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.reindexWorkspace', async () => {
+            const symbolCache = WorkspaceSymbolCache.getInstance();
+            
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: 'Re-indexing workspace symbols...',
+                cancellable: false
+            }, async () => {
+                await symbolCache.forceReindexWorkspace();
+            });
+            
+            const stats = symbolCache.getCacheStats();
+            if (stats.totalFiles > 0) {
+                vscode.window.showInformationMessage(
+                    `Workspace symbols re-indexed successfully! ${stats.totalFiles} files, ${stats.totalMethods} methods.`
+                );
+            } else {
+                vscode.window.showWarningMessage(
+                    'Re-indexing completed but no symbols found. Language extensions may not be activated yet.'
+                );
+            }
+            this.symbolsProvider.refresh();
+        });
+    }
+
+    // Command to show cache statistics
+    createShowCacheStatsCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.showCacheStats', () => {
+            const symbolCache = WorkspaceSymbolCache.getInstance();
+            const stats = symbolCache.getCacheStats();
+            const isIndexing = symbolCache.isIndexingInProgress();
+            
+            const message = `Symbol Cache Statistics:\n` +
+                `• Cached files: ${stats.totalFiles}\n` +
+                `• Cache size: ${stats.cacheSize} entries\n` +
+                `• Total methods cached: ${stats.totalMethods}\n` +
+                `• Unique method names: ${stats.uniqueMethodNames}\n` +
+                `• Indexing in progress: ${isIndexing ? 'Yes' : 'No'}`;
+            
+            vscode.window.showInformationMessage(message, 'Show Cache Output').then(selection => {
+                if (selection === 'Show Cache Output') {
+                    symbolCache.showCacheOutput();
+                }
+            });
+        });
+    }
+
     // Helper function to find method at position
     private findMethodAtPosition(position: vscode.Position, symbols: vscode.DocumentSymbol[]): vscode.DocumentSymbol | null {
         for (const symbol of symbols) {
@@ -188,6 +275,143 @@ export class RecallsCommands {
         return null;
     }
 
+    // Command to analyze internal method calls
+    createAnalyzeInternalCallsCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.analyzeInternalCalls', async (item: SymbolTreeItem) => {
+            if (!item.symbol) {
+                vscode.window.showErrorMessage('No method symbol selected');
+                return;
+            }
+
+            if (!vscode.window.activeTextEditor) {
+                vscode.window.showErrorMessage('No active editor');
+                return;
+            }
+
+            vscode.window.showInformationMessage(`Analyzing internal calls for method: ${item.symbol.name}...`);
+
+            try {
+                const result = await this.internalAnalysisService.analyzeInternalMethodCalls(
+                    item.symbol, 
+                    vscode.window.activeTextEditor.document.uri
+                );
+
+                if (result) {
+                    this.internalMethodCallProvider.setAnalysisResult(result);
+                    vscode.window.showInformationMessage(`Analysis complete! Found ${result.totalCallsFound} internal calls.`);
+                } else {
+                    vscode.window.showWarningMessage('Could not analyze internal method calls');
+                }
+            } catch (error) {
+                console.error('Error analyzing internal method calls:', error);
+                vscode.window.showErrorMessage('Failed to analyze internal method calls');
+            }
+        });
+    }
+
+    // Command to go to internal call location
+    createGoToInternalCallCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.goToInternalCall', async (item: InternalMethodCallTreeItem) => {
+            if (!item.methodCall) {
+                return;
+            }
+
+            try {
+                const document = await vscode.workspace.openTextDocument(item.methodCall.uri);
+                const editor = await vscode.window.showTextDocument(document);
+                
+                const range = item.methodCall.range;
+                editor.selection = new vscode.Selection(range.start, range.end);
+                editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+            } catch (error) {
+                console.error('Error navigating to internal call:', error);
+                vscode.window.showErrorMessage('Failed to navigate to call location');
+            }
+        });
+    }
+
+    // Command to clear internal analysis
+    createClearInternalAnalysisCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.clearInternalAnalysis', () => {
+            this.internalMethodCallProvider.clear();
+            vscode.window.showInformationMessage('Internal analysis cleared');
+        });
+    }
+
+    // Command to refresh internal calls
+    createRefreshInternalCallsCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.refreshInternalCalls', () => {
+            this.internalMethodCallProvider.refresh();
+        });
+    }
+
+    // Command to analyze internal calls at cursor
+    createAnalyzeInternalCallsAtCursorCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.analyzeInternalCallsAtCursor', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showErrorMessage('No active editor');
+                return;
+            }
+
+            const position = editor.selection.active;
+            
+            try {
+                const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                    'vscode.executeDocumentSymbolProvider',
+                    editor.document.uri
+                );
+
+                if (!symbols || symbols.length === 0) {
+                    vscode.window.showErrorMessage('No symbols found in current file');
+                    return;
+                }
+
+                const method = this.findMethodAtPosition(position, symbols);
+                if (!method) {
+                    vscode.window.showErrorMessage('No method found at cursor position');
+                    return;
+                }
+
+                vscode.window.showInformationMessage(`Analyzing internal calls for method: ${method.name}...`);
+
+                const result = await this.internalAnalysisService.analyzeInternalMethodCalls(method, editor.document.uri);
+
+                if (result) {
+                    this.internalMethodCallProvider.setAnalysisResult(result);
+                    vscode.window.showInformationMessage(`Analysis complete! Found ${result.totalCallsFound} internal calls.`);
+                } else {
+                    vscode.window.showWarningMessage('Could not analyze internal method calls');
+                }
+            } catch (error) {
+                console.error('Error analyzing internal method calls at cursor:', error);
+                vscode.window.showErrorMessage('Failed to analyze internal method calls');
+            }
+        });
+    }
+
+    // Command to show internal call statistics
+    createShowInternalCallStatsCommand(): vscode.Disposable {
+        return vscode.commands.registerCommand('recalls.showInternalCallStats', () => {
+            const stats = this.internalMethodCallProvider.getStatistics();
+            if (!stats) {
+                vscode.window.showWarningMessage('No internal analysis available');
+                return;
+            }
+
+            const message = `Internal Call Analysis Statistics:
+            
+Root Method: ${stats.rootMethod}
+Total Calls Found: ${stats.totalCalls}
+Resolved Calls: ${stats.resolvedCalls}
+Unresolved Calls: ${stats.unresolvedCalls}
+Recursive Calls: ${stats.recursiveCalls}
+Max Depth Reached: ${stats.maxDepthReached}`;
+
+            vscode.window.showInformationMessage(message, { modal: true });
+        });
+    }
+
     // Register all commands
     registerAllCommands(context: vscode.ExtensionContext): void {
         context.subscriptions.push(
@@ -200,7 +424,17 @@ export class RecallsCommands {
             this.createRefreshMethodCallsCommand(),
             this.createShowWorkspaceInfoCommand(),
             this.createAnalyzeMethodAtCursorCommand(),
-            this.createEnableDebugCommand()
+            this.createEnableDebugCommand(),
+            this.createSearchSymbolsCommand(),
+            this.createClearSymbolSearchCommand(),
+            this.createReindexWorkspaceCommand(),
+            this.createShowCacheStatsCommand(),
+            this.createAnalyzeInternalCallsCommand(),
+            this.createGoToInternalCallCommand(),
+            this.createClearInternalAnalysisCommand(),
+            this.createRefreshInternalCallsCommand(),
+            this.createAnalyzeInternalCallsAtCursorCommand(),
+            this.createShowInternalCallStatsCommand()
         );
     }
 }

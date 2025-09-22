@@ -1,10 +1,16 @@
 import * as vscode from 'vscode';
 import { MethodCallInfo, WorkspaceStats } from './types';
+import { WorkspaceSymbolCache } from './workspace-symbol-cache';
 
 // Method Call Analysis Service
 export class MethodCallAnalysisService {
     private maxDepth: number = 3;
     private processedMethods: Set<string> = new Set(); // Track processed methods to avoid infinite recursion
+    private symbolCache: WorkspaceSymbolCache;
+
+    constructor() {
+        this.symbolCache = WorkspaceSymbolCache.getInstance();
+    }
 
     setMaxDepth(depth: number): void {
         this.maxDepth = Math.max(1, Math.min(depth, 10)); // Limit between 1 and 10
@@ -112,19 +118,16 @@ export class MethodCallAnalysisService {
 
                 console.log(`Processing ${filteredLocations.length} references in ${uri.fsPath}`);
 
-                // Get document symbols for the file
+                // Get document symbols for the file using cache for better performance
                 let symbols: vscode.DocumentSymbol[] | undefined;
                 try {
-                    symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
-                        'vscode.executeDocumentSymbolProvider',
-                        uri
-                    );
+                    symbols = await this.symbolCache.getSymbolsForFile(uri);
                 } catch (error) {
                     console.warn(`Could not get symbols for ${uri.fsPath}:`, error);
                     continue;
                 }
 
-                if (!symbols) {
+                if (!symbols || symbols.length === 0) {
                     console.warn(`No symbols found for ${uri.fsPath}`);
                     continue;
                 }
@@ -163,13 +166,89 @@ export class MethodCallAnalysisService {
         }
     }
 
-    // New method to search workspace using VS Code's search functionality
+    // Enhanced method to search workspace using cached symbols when possible
     private async searchWorkspaceForMethod(methodName: string): Promise<vscode.Location[]> {
+        try {
+            console.log(`Performing workspace search for method: ${methodName}`);
+            
+            // First, try to use cached symbols for a smarter search
+            const cacheStats = this.symbolCache.getCacheStats();
+            if (cacheStats.cacheSize > 0) {
+                console.log(`Using cached symbols for search (${cacheStats.cacheSize} files cached)`);
+                return await this.searchCachedSymbols(methodName);
+            }
+            
+            // Fallback to text-based search if cache is not ready
+            console.log('Cache not ready, falling back to text-based search');
+            return await this.searchWorkspaceByText(methodName);
+        } catch (error) {
+            console.error('Error searching workspace:', error);
+            return [];
+        }
+    }
+
+    // Search using cached symbols (faster and more accurate)
+    private async searchCachedSymbols(methodName: string): Promise<vscode.Location[]> {
+        const locations: vscode.Location[] = [];
+        
+        // First, try to find method definitions using the method name cache
+        const methodDefinitions = this.symbolCache.findMethodsByName(methodName);
+        
+        if (methodDefinitions.length > 0) {
+            // Add the definition locations
+            for (const methodDef of methodDefinitions) {
+                locations.push(new vscode.Location(methodDef.uri, methodDef.symbol.selectionRange));
+            }
+        }
+
+        // Then search for references/calls to this method in all files
+        const files = await vscode.workspace.findFiles(
+            '**/*.{ts,js,tsx,jsx,py,java,cs,cpp,c,h,hpp}',
+            '{**/node_modules/**,**/bin/**,**/obj/**}'
+        );
+
+        // Search through cached symbols for references
+        for (const file of files) {
+            try {
+                const symbols = await this.symbolCache.getSymbolsForFile(file);
+                this.findMethodCallsInSymbols(methodName, symbols, file, locations);
+            } catch (error) {
+                // If cache fails for this file, skip it
+                console.warn(`Could not get cached symbols for ${file.fsPath}`);
+            }
+        }
+
+        return locations;
+    }
+
+    // Recursively search for method calls in symbol tree
+    private findMethodCallsInSymbols(
+        methodName: string, 
+        symbols: vscode.DocumentSymbol[], 
+        uri: vscode.Uri, 
+        locations: vscode.Location[]
+    ): void {
+        for (const symbol of symbols) {
+            // Check if this symbol calls the method (simple name check)
+            // This is a basic implementation - could be enhanced with AST parsing
+            if (symbol.name.includes(methodName)) {
+                locations.push(new vscode.Location(uri, symbol.selectionRange));
+            }
+            
+            // Recursively check children
+            if (symbol.children && symbol.children.length > 0) {
+                this.findMethodCallsInSymbols(methodName, symbol.children, uri, locations);
+            }
+        }
+    }
+
+    // Fallback text-based search method
+    private async searchWorkspaceByText(methodName: string): Promise<vscode.Location[]> {
         try {
             // Get all relevant files in the workspace
             const files = await vscode.workspace.findFiles(
                 '**/*.{ts,js,tsx,jsx,py,java,cs,cpp,c,h,hpp}',
-                '**/node_modules/**'
+                '{**/node_modules/**,**/bin/**,**/obj/**}'
             );
 
             const locations: vscode.Location[] = [];
@@ -222,9 +301,13 @@ export class MethodCallAnalysisService {
         return null;
     }
 
-    // Method to get workspace statistics
+    // Method to get workspace statistics using cache
     async getWorkspaceStats(): Promise<WorkspaceStats> {
         try {
+            // Get stats from cache for better performance
+            const cacheStats = this.symbolCache.getCacheStats();
+            
+            // Also get total files for comparison
             const workspaceFiles = await vscode.workspace.findFiles(
                 '**/*.{ts,js,tsx,jsx,py,java,cs,cpp,c,h,hpp}', // Common programming file extensions
                 '**/node_modules/**' // Exclude node_modules
@@ -232,7 +315,7 @@ export class MethodCallAnalysisService {
             
             return {
                 totalFiles: workspaceFiles.length,
-                supportedFiles: workspaceFiles.length
+                supportedFiles: cacheStats.cacheSize
             };
         } catch (error) {
             console.error('Error getting workspace stats:', error);
