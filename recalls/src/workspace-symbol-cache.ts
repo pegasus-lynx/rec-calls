@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CachedMethodInfo } from './types';
+import { CachedMethodInfo, MethodReferenceInfo } from './types';
 
 // Interface for cached symbol information
 export interface CachedSymbolInfo {
@@ -14,6 +14,7 @@ export class WorkspaceSymbolCache {
     private static instance: WorkspaceSymbolCache;
     private symbolCache = new Map<string, CachedSymbolInfo>();
     private methodNameCache = new Map<string, CachedMethodInfo[]>(); // Method name to method info mapping
+    private methodReferenceCache = new Map<string, MethodReferenceInfo[]>(); // Method name to reference locations mapping
     private indexingInProgress = false;
     private indexingPromise: Promise<void> | null = null;
     private readonly outputChannel: vscode.OutputChannel;
@@ -170,8 +171,9 @@ export class WorkspaceSymbolCache {
 
             const finalCacheSize = this.symbolCache.size;
             const methodStats = this.getMethodCacheStats();
+            const referenceStats = this.getMethodReferenceCacheStats();
             
-            this.log(`Workspace indexing complete. Cached ${finalCacheSize} files with ${methodStats.totalMethods} methods (${methodStats.uniqueMethodNames} unique names).`);
+            this.log(`Workspace indexing complete. Cached ${finalCacheSize} files with ${methodStats.totalMethods} methods (${methodStats.uniqueMethodNames} unique names) and ${referenceStats.totalReferences} references (${referenceStats.uniqueMethodNames} unique referenced methods).`);
             
             if (finalCacheSize === 0) {
                 this.log('WARNING: No files were successfully indexed! This might indicate an issue with symbol providers.');
@@ -249,6 +251,9 @@ export class WorkspaceSymbolCache {
                 // Build method name cache for this file
                 this.buildMethodNameCacheForFile(uri, symbols);
                 
+                // Build method reference cache for this file
+                await this.buildMethodReferenceCacheForFile(uri, document, symbols);
+                
                 this.log(`Successfully indexed ${uri.fsPath} with ${symbols.length} symbols`);
             } else {
                 this.log(`No symbols found for ${uri.fsPath}`);
@@ -308,6 +313,9 @@ export class WorkspaceSymbolCache {
                 // Build method name cache for this file
                 this.buildMethodNameCacheForFile(uri, symbols);
                 
+                // Build method reference cache for this file
+                await this.buildMethodReferenceCacheForFile(uri, document, symbols);
+                
                 this.log(`Updated cache for ${uri.fsPath}`);
             }
         } catch (error) {
@@ -320,6 +328,7 @@ export class WorkspaceSymbolCache {
         if (this.symbolCache.has(cacheKey)) {
             this.symbolCache.delete(cacheKey);
             this.removeMethodsFromCache(uri); // Also remove from method cache
+            this.removeReferencesFromCache(uri); // Also remove from reference cache
             this.log(`Invalidated cache for ${uri.fsPath}`);
         }
     }
@@ -331,6 +340,7 @@ export class WorkspaceSymbolCache {
         this.log('Force re-indexing workspace...');
         this.symbolCache.clear();
         this.methodNameCache.clear();
+        this.methodReferenceCache.clear(); // Also clear reference cache
         
         // Reset indexing state
         this.indexingInProgress = false;
@@ -342,6 +352,7 @@ export class WorkspaceSymbolCache {
     public async reindexWorkspace(): Promise<void> {
         this.symbolCache.clear();
         this.methodNameCache.clear(); // Also clear method cache
+        this.methodReferenceCache.clear(); // Also clear reference cache
         await this.initializeWorkspaceIndex();
     }
 
@@ -489,16 +500,224 @@ export class WorkspaceSymbolCache {
         this.methodNameCache.clear();
     }
 
+    // ===== METHOD REFERENCE CACHE METHODS =====
+
+    /**
+     * Build method reference cache for a specific file
+     */
+    private async buildMethodReferenceCacheForFile(
+        uri: vscode.Uri, 
+        document: vscode.TextDocument, 
+        symbols: vscode.DocumentSymbol[]
+    ): Promise<void> {
+        // First, remove any existing references from this file from the cache
+        this.removeReferencesFromCache(uri);
+
+        // Then scan the file content for method references
+        await this.extractMethodReferencesFromFile(uri, document, symbols);
+    }
+
+    /**
+     * Remove all method references from a specific file from the reference cache
+     */
+    private removeReferencesFromCache(uri: vscode.Uri): void {
+        const filePath = uri.toString();
+        
+        // Iterate through all method reference entries and remove those from this file
+        for (const [methodName, referenceInfos] of this.methodReferenceCache) {
+            const filteredReferences = referenceInfos.filter(info => info.uri.toString() !== filePath);
+            
+            if (filteredReferences.length === 0) {
+                // No references left for this method name, remove the entry
+                this.methodReferenceCache.delete(methodName);
+            } else {
+                // Update with filtered list
+                this.methodReferenceCache.set(methodName, filteredReferences);
+            }
+        }
+    }
+
+    /**
+     * Extract method references from file content and add to reference cache
+     */
+    private async extractMethodReferencesFromFile(
+        uri: vscode.Uri, 
+        document: vscode.TextDocument, 
+        symbols: vscode.DocumentSymbol[]
+    ): Promise<void> {
+        const text = document.getText();
+        
+        // Find all potential method calls in the file
+        const methodCallMatches = this.findMethodCallsInText(text);
+        
+        for (const match of methodCallMatches) {
+            // Calculate the position within the document
+            const startPos = document.positionAt(match.index);
+            const endPos = document.positionAt(match.index + match.methodName.length);
+            const callRange = new vscode.Range(startPos, endPos);
+            
+            // Find which method contains this reference
+            const containingMethod = this.findContainingMethodAtPosition(startPos, symbols);
+            
+            const referenceInfo: MethodReferenceInfo = {
+                methodName: match.methodName,
+                uri: uri,
+                range: callRange,
+                filePath: uri.fsPath,
+                containingMethod: containingMethod?.name
+            };
+            
+            // Add to method reference cache
+            const existingReferences = this.methodReferenceCache.get(match.methodName) || [];
+            existingReferences.push(referenceInfo);
+            this.methodReferenceCache.set(match.methodName, existingReferences);
+        }
+    }
+
+    /**
+     * Find method calls in text using regex patterns
+     */
+    private findMethodCallsInText(text: string): Array<{methodName: string, index: number}> {
+        const matches: Array<{methodName: string, index: number}> = [];
+        
+        // Pattern for standard method calls: methodName(
+        const methodCallRegex = /(?:^|[^.\w])(\w+)\s*\(/g;
+        let match;
+        
+        while ((match = methodCallRegex.exec(text)) !== null) {
+            const methodName = match[1];
+            
+            // Skip built-in or very common method names
+            if (this.isBuiltInOrCommon(methodName)) {
+                continue;
+            }
+            
+            // Calculate the actual start position of the method name
+            const methodStartIndex = match.index + match[0].indexOf(methodName);
+            
+            matches.push({
+                methodName: methodName,
+                index: methodStartIndex
+            });
+        }
+
+        // Pattern for property method calls: object.method(
+        const propertyMethodRegex = /\.(\w+)\s*\(/g;
+        
+        while ((match = propertyMethodRegex.exec(text)) !== null) {
+            const methodName = match[1];
+            
+            // Skip built-in or very common method names
+            if (this.isBuiltInOrCommon(methodName)) {
+                continue;
+            }
+            
+            // Calculate the actual start position of the method name (after the dot)
+            const methodStartIndex = match.index + 1; // +1 to skip the dot
+            
+            matches.push({
+                methodName: methodName,
+                index: methodStartIndex
+            });
+        }
+
+        return matches;
+    }
+
+    /**
+     * Find the method that contains a given position
+     */
+    private findContainingMethodAtPosition(
+        position: vscode.Position, 
+        symbols: vscode.DocumentSymbol[]
+    ): vscode.DocumentSymbol | null {
+        for (const symbol of symbols) {
+            if (this.isMethodSymbol(symbol) && symbol.range.contains(position)) {
+                return symbol;
+            }
+
+            // Check children recursively
+            if (symbol.children && symbol.children.length > 0) {
+                const found = this.findContainingMethodAtPosition(position, symbol.children);
+                if (found) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Filter out built-in or very common method names that aren't relevant
+     */
+    private isBuiltInOrCommon(methodName: string): boolean {
+        const builtInMethods = [
+            'console', 'log', 'error', 'warn', 'info', 'debug',
+            'push', 'pop', 'shift', 'unshift', 'slice', 'splice',
+            'map', 'filter', 'reduce', 'forEach', 'find', 'some', 'every',
+            'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf',
+            'length', 'indexOf', 'lastIndexOf', 'charAt', 'charCodeAt',
+            'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'return',
+            'var', 'let', 'const', 'function', 'class', 'import', 'export',
+            'try', 'catch', 'finally', 'throw', 'new', 'delete', 'typeof',
+            'instanceof', 'in', 'of', 'true', 'false', 'null', 'undefined',
+            'get', 'set', 'add', 'remove', 'clear', 'contains', 'size'
+        ];
+
+        return builtInMethods.includes(methodName.toLowerCase()) || 
+               methodName.length < 2 || 
+               /^\d/.test(methodName); // Starts with number
+    }
+
+    /**
+     * Find method references by name using the reference cache
+     */
+    public findMethodReferences(methodName: string): MethodReferenceInfo[] {
+        return this.methodReferenceCache.get(methodName) || [];
+    }
+
+    /**
+     * Get method reference cache statistics
+     */
+    public getMethodReferenceCacheStats(): { totalReferences: number; uniqueMethodNames: number } {
+        let totalReferences = 0;
+        for (const references of this.methodReferenceCache.values()) {
+            totalReferences += references.length;
+        }
+
+        return {
+            totalReferences: totalReferences,
+            uniqueMethodNames: this.methodReferenceCache.size
+        };
+    }
+
+    /**
+     * Clear method reference cache
+     */
+    public clearMethodReferenceCache(): void {
+        this.methodReferenceCache.clear();
+    }
+
     /**
      * Update cache stats to include method cache info
      */
-    public getCacheStats(): { totalFiles: number; cacheSize: number; totalMethods: number; uniqueMethodNames: number } {
+    public getCacheStats(): { 
+        totalFiles: number; 
+        cacheSize: number; 
+        totalMethods: number; 
+        uniqueMethodNames: number;
+        totalReferences: number;
+        uniqueReferencedMethods: number;
+    } {
         const methodStats = this.getMethodCacheStats();
+        const referenceStats = this.getMethodReferenceCacheStats();
         return {
             totalFiles: this.symbolCache.size,
             cacheSize: this.symbolCache.size,
             totalMethods: methodStats.totalMethods,
-            uniqueMethodNames: methodStats.uniqueMethodNames
+            uniqueMethodNames: methodStats.uniqueMethodNames,
+            totalReferences: referenceStats.totalReferences,
+            uniqueReferencedMethods: referenceStats.uniqueMethodNames
         };
     }
 

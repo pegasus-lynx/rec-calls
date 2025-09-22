@@ -31,6 +31,15 @@ export interface CachedMethodInfo {
     filePath: string;
 }
 
+// Interface for method reference information
+export interface MethodReferenceInfo {
+    methodName: string;
+    uri: vscode.Uri;
+    range: vscode.Range;
+    filePath: string;
+    containingMethod?: string; // The method that contains this reference
+}
+
 // Root analysis result for internal method calls
 export interface InternalCallAnalysisResult {
     rootMethod: string;

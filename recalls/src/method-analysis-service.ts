@@ -61,18 +61,18 @@ export class MethodCallAnalysisService {
             let references: vscode.Location[] = [];
             
             // Strategy 1: Use VS Code's built-in reference provider
-            try {
-                const refs1 = await vscode.commands.executeCommand<vscode.Location[]>(
-                    'vscode.executeReferenceProvider',
-                    callInfo.uri,
-                    callInfo.range.start
-                );
-                if (refs1) {
-                    references = refs1;
-                }
-            } catch (error) {
-                console.warn('Reference provider failed:', error);
-            }
+            // try {
+            //     const refs1 = await vscode.commands.executeCommand<vscode.Location[]>(
+            //         'vscode.executeReferenceProvider',
+            //         callInfo.uri,
+            //         callInfo.range.start
+            //     );
+            //     if (refs1) {
+            //         references = refs1;
+            //     }
+            // } catch (error) {
+            //     console.warn('Reference provider failed:', error);
+            // }
 
             // Strategy 2: If no references found, try workspace search
             if (references.length === 0) {
@@ -169,22 +169,44 @@ export class MethodCallAnalysisService {
     // Enhanced method to search workspace using cached symbols when possible
     private async searchWorkspaceForMethod(methodName: string): Promise<vscode.Location[]> {
         try {
-            console.log(`Performing workspace search for method: ${methodName}`);
+            console.log(`Searching for method references: ${methodName}`);
             
-            // First, try to use cached symbols for a smarter search
+            // First, try to use cached references for a fast search
             const cacheStats = this.symbolCache.getCacheStats();
-            if (cacheStats.cacheSize > 0) {
-                console.log(`Using cached symbols for search (${cacheStats.cacheSize} files cached)`);
-                return await this.searchCachedSymbols(methodName);
+            if (cacheStats.totalReferences > 0) {
+                console.log(`Using cached references for search (${cacheStats.totalReferences} references cached)`);
+                return await this.searchCachedReferences(methodName);
             }
             
-            // Fallback to text-based search if cache is not ready
-            console.log('Cache not ready, falling back to text-based search');
-            return await this.searchWorkspaceByText(methodName);
+            // Fallback to cached symbols search if reference cache is not ready
+            console.log('Reference cache not ready, falling back to symbol-based search');
+            return await this.searchCachedSymbols(methodName);
         } catch (error) {
             console.error('Error searching workspace:', error);
             return [];
         }
+    }
+
+    // Search using cached method references (fastest and most accurate)
+    private async searchCachedReferences(methodName: string): Promise<vscode.Location[]> {
+        const locations: vscode.Location[] = [];
+        
+        // Get method references from cache
+        const methodReferences = this.symbolCache.findMethodReferences(methodName);
+        
+        // Convert reference info to VS Code locations
+        for (const ref of methodReferences) {
+            locations.push(new vscode.Location(ref.uri, ref.range));
+        }
+        
+        // Also get method definitions from the method name cache
+        const methodDefinitions = this.symbolCache.findMethodsByName(methodName);
+        for (const methodDef of methodDefinitions) {
+            locations.push(new vscode.Location(methodDef.uri, methodDef.symbol.selectionRange));
+        }
+        
+        console.log(`Found ${methodReferences.length} references + ${methodDefinitions.length} definitions = ${locations.length} total locations`);
+        return locations;
     }
 
     // Search using cached symbols (faster and more accurate)

@@ -245,6 +245,8 @@ export class RecallsCommands {
                 `• Cache size: ${stats.cacheSize} entries\n` +
                 `• Total methods cached: ${stats.totalMethods}\n` +
                 `• Unique method names: ${stats.uniqueMethodNames}\n` +
+                `• Total method references: ${stats.totalReferences}\n` +
+                `• Referenced method names: ${stats.uniqueReferencedMethods}\n` +
                 `• Indexing in progress: ${isIndexing ? 'Yes' : 'No'}`;
             
             vscode.window.showInformationMessage(message, 'Show Cache Output').then(selection => {
