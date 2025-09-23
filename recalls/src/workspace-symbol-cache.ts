@@ -105,7 +105,7 @@ export class WorkspaceSymbolCache {
         }
         
         // Test symbol provider on a sample file
-        let maxRetries = 10;
+        let maxRetries = 30;
         let symbolsFound = false;
         
         for (let retry = 0; retry < maxRetries && !symbolsFound; retry++) {

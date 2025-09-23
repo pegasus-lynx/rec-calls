@@ -11,6 +11,14 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pegasus-lynx/rec-calls.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pegasus-lynx/rec-calls/issues"
+  },
+  "homepage": "https://github.com/pegasus-lynx/rec-calls#readme",
   "contributes": {
     "commands": [
       {
@@ -112,11 +120,11 @@
         },
         {
           "id": "inspect-methods",
-          "name": "Inspect Methods"
+          "name": "Method : Callers"
         },
         {
           "id": "internal-method-calls",
-          "name": "Internal Method Calls"
+          "name": "Method Call Flow"
         }
       ]
     },

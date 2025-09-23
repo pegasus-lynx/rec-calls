@@ -8,6 +8,12 @@
 
 Recalls is a Visual Studio Code extension that provides comprehensive method call analysis, symbol caching, and recursive call tracking across your entire workspace. Whether you're debugging complex codebases, understanding method relationships, or performing code analysis, Recalls gives you the tools to navigate and understand your code structure efficiently.
 
+## 📸 Screenshots
+
+### Symbol View with Editor Integration
+![Symbols with Editor](resources/current-file-symbols-with-editor.png)
+*Seamless integration between symbol tree and code editor*
+
 ## 🚀 Features
 
 ### 📊 **Comprehensive Method Analysis**
@@ -32,18 +38,21 @@ Recalls is a Visual Studio Code extension that provides comprehensive method cal
 ### 🎯 **Three Specialized Views**
 
 #### 1. **Symbols View**
+![Current File Symbols](resources/current-file-symbols.png)
 - Real-time symbol tree for the active file
 - Search and filter functionality (`Ctrl+Shift+F`)
 - Quick navigation to any symbol
 - Support for methods, functions, classes, variables, and more
 
 #### 2. **Inspect Methods View** 
+![Recursive References](resources/recursive-call-references.png)
 - Shows what methods **call TO** a selected method
 - Recursive analysis of method callers
 - Cross-file caller tracking
 - Configurable analysis depth
 
 #### 3. **Internal Method Calls View**
+![Method Call Flow](resources/method-call-flow.png)
 - Shows what methods are **called FROM within** a selected method  
 - Recursive analysis of internal method calls
 - Method definition resolution
@@ -71,6 +80,9 @@ code --install-extension recalls-0.0.1.vsix
 ## 🎮 Usage
 
 ### **Getting Started**
+
+![Symbols with Editor Integration](resources/current-file-symbols-with-editor.png)
+*The extension seamlessly integrates with your VS Code workspace*
 
 1. **Open a Project**: Open any project with supported file types
 2. **Wait for Indexing**: The extension automatically indexes your workspace symbols
